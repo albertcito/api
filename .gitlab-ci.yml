@@ -1,0 +1,62 @@
+image: registry.gitlab.com/miaum/api
+
+services:
+  - mysql:5.7
+
+variables:
+  MYSQL_DATABASE: miaum
+  MYSQL_ROOT_PASSWORD: 123456
+
+stages:
+  - test
+  - deploy
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - vendor/
+
+phpunit:
+  stage: test
+  script:
+    - cp .env.example .env
+    - composer install --prefer-dist --no-ansi --no-interaction --no-progress --no-scripts
+    - php artisan key:generate
+    - php artisan migrate
+    - php artisan db:seed
+    - composer dump-autoload
+    - vendor/bin/phpunit
+  when: manual
+
+deploy_production:
+  stage: deploy
+  script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    - ~/.composer/vendor/bin/envoy run deploy
+  environment:
+    name: production
+    url: http://api.devicepixel.com
+  when: manual
+  only:
+    - master
+
+deploy_develop:
+  stage: deploy
+  script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    - ~/.composer/vendor/bin/envoy run deploy_develop
+  environment:
+    name: develop
+    url: http://dev-api.devicepixel.com
+  when: manual
+  only:
+    - develop
